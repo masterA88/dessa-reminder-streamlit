@@ -75,7 +75,7 @@ elif st.session_state.mode == "create":
             with st.spinner("Memproses..."):
                 ok, res = api_post({"action":"create", "name":name.strip(), "email":email.strip()})
             if ok:
-                st.success(f"Terima kasih, **{name}**! ID kamu: `{res.get('id')}`")
+                st.success(f"Terima kasih, **{name}**! ID kamu: `{res.get('id')}`.")
             else:
                 st.error(f"Gagal: {res}")
 
