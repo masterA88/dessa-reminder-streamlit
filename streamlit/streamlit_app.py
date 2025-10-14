@@ -37,9 +37,9 @@ if st.session_state.mode == "home":
         """
 **Pengingat harian 19:00–23:59 WIB**
 
-- Aplikasi ini membantu karyawan membuat pengingat harian settlement transportasi (19:00–23:59 WIB) dan mengirim konfirmasi lewat email. 
-- Tips: Jika tombol tidak merespons, **coba dobel-klik**.
-- Nama boleh **samaran**, tapi **email harus asli** agar email konfirmasi & file ICS terkirim.
+- Aplikasi ini membuat event kalender harian untuk settlement transportasi—kamu cukup **add to calendar** dari email (tersedia tautan Google Calendar & file ICS untuk Outlook/Apple).
+- **Tips**: Jika tombol tidak merespons, **coba dobel-klik**.
+- **Privasi**: nama boleh samaran, tapi email harus asli agar email konfirmasi & ICS(file kalender) terkirim.
 - Pilih aksi di bawah:
         """
     )
