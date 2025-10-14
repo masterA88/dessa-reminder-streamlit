@@ -118,7 +118,7 @@ elif st.session_state.mode == "remove":
             with st.spinner("Memeriksa & membatalkan..."):
                 ok, res = api_post({"action":"remove","id":rid.strip()})
             if ok:
-                st.success(f"Reminder `{rid}` sudah **dibatalkan**. Email konfirmasi dikirim.")
+                st.success(f"Reminder `{rid}` sudah **dibatalkan**.")
                 st.info("Jika event sudah masuk kalender, hapus manual di Google/Outlook/Apple.")
             else:
                 st.error(f"Gagal: {res}")
