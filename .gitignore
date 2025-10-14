@@ -1,0 +1,9 @@
+﻿# OS cruft
+.DS_Store
+Thumbs.db
+
+# Python/Streamlit
+__pycache__/
+.venv/
+.env
+.streamlit/secrets.toml

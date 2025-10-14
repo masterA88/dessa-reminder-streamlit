@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dessa – AI Reminder Transportasi</title>
+  <style>
+    :root { --bg:#0b1320; --panel:#121a2b; --muted:#93a3b3; --accent:#2dd4bf; --danger:#ef4444; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial; background: var(--bg); color:#e6edf3 }
+    .widget { position: fixed; bottom: 24px; right: 24px; width: 360px; max-width:90vw; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,.35); background: var(--panel); border:1px solid rgba(255,255,255,.06)}
+    .header { display:flex; gap:10px; align-items:center; padding:14px 16px; border-bottom:1px solid rgba(255,255,255,.06)}
+    .dot { width:10px; height:10px; border-radius:50%; background:var(--accent)}
+    .title { font-weight:600 }
+    .sub { color: var(--muted); font-size: 12px }
+    .body { max-height: 60vh; overflow:auto; padding: 12px 14px; display:flex; flex-direction:column; gap:12px }
+    .msg { padding:10px 12px; border-radius: 12px; max-width: 92% }
+    .dessa { background: rgba(45,212,191,.12); border:1px solid rgba(45,212,191,.25) }
+    .user { background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); align-self:flex-end }
+    .actions { display:flex; flex-wrap:wrap; gap:8px }
+    button.chip { border:1px solid rgba(255,255,255,.12); background:transparent; color:#e6edf3; padding:8px 12px; border-radius:999px; cursor:pointer }
+    button.chip:hover { border-color: var(--accent); color: var(--accent) }
+    form.inline { display:flex; flex-direction:column; gap:8px; padding:6px 0 }
+    label { font-size: 12px; color: var(--muted) }
+    input { background:#0f1626; border:1px solid rgba(255,255,255,.08); border-radius:10px; padding:10px 12px; color:#fff }
+    input:focus { outline:none; border-color: var(--accent) }
+    .help { font-size:12px; color: var(--muted) }
+    .error { color: var(--danger); font-size:12px }
+    .footer { padding: 10px 14px; border-top:1px solid rgba(255,255,255,.06); font-size:12px; color:var(--muted) }
+    a { color: var(--accent) }
+  </style>
+</head>
+<body>
+  <div class="widget" id="widget">
+    <div class="header">
+      <div class="dot"></div>
+      <div>
+        <div class="title">Dessa • Asisten Pengingat</div>
+        <div class="sub">Hi I'm Dessa, H's AI assistant. How can I help you?</div>
+      </div>
+    </div>
+    <div class="body" id="chat"></div>
+    <div class="footer">Privasi: hanya Nama, Email, dan ID reminder yang disimpan.</div>
+  </div>
+
+<script>
+const API_BASE = "https://script.google.com/macros/s/PASTE_WEB_APP_URL/exec"; // <-- GANTI
+const emailRegex = /^[\w.+\-]+@([\w\-]+\.)+[A-Za-z]{2,}$/;
+
+const chat = document.getElementById('chat');
+const el = (h, cls, text) => { const n = document.createElement(h); if (cls) n.className = cls; if (text) n.textContent = text; return n }
+const scroll = () => chat.scrollTop = chat.scrollHeight;
+function addMsg(kind, html) { const div = el('div', `msg ${kind}`); div.innerHTML = html; chat.appendChild(div); scroll() }
+function chips(options) {
+  const wrap = el('div', 'actions');
+  options.forEach(({label, onClick}) => { const b = el('button', 'chip', label); b.addEventListener('click', onClick); wrap.appendChild(b) });
+  return wrap;
+}
+
+function greet() {
+  addMsg('dessa', `<strong>Halo! Aku Dessa.</strong><br/>Aku bantu set pengingat <em>settlement transportasi</em> (harian, 19:00–23:59 WIB).`);
+  const actions = chips([
+    { label: '➕ Set Reminder', onClick: startCreate },
+    { label: '🔎 Cek Status (ID)', onClick: startStatus },
+    { label: '🗑️ Hapus (ID)', onClick: startRemove },
+  ]);
+  addMsg('dessa', actions.outerHTML);
+  chat.lastChild.replaceWith(actions);
+}
+
+function startCreate() {
+  addMsg('dessa', 'Siap! Masukkan <strong>Nama</strong> dan <strong>Email</strong>.');
+  const f = el('form', 'inline');
+  f.innerHTML = `
+    <div><label>Nama</label><input name="name" required placeholder="cth: Suyadi"/></div>
+    <div><label>Email</label><input name="email" required placeholder="nama@perusahaan.com"/><div class="help">Gunakan email yang valid.</div><div class="error" data-err hidden>Email tidak valid.</div></div>
+    <div class="actions"><button type="submit" class="chip">Simpan</button><button type="button" class="chip" id="cancel">Batal</button></div>
+  `;
+  f.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const name = f.elements['name'].value.trim();
+    const email = f.elements['email'].value.trim();
+    const err = f.querySelector('[data-err]');
+    if (!emailRegex.test(email)) { err.hidden=false; return; } else err.hidden=true;
+
+    addMsg('user', `Nama: ${name}<br/>Email: ${email}`);
+    addMsg('dessa', 'Memproses...');
+    try {
+      const res = await fetch(API_BASE, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'create', name, email }) });
+      const data = await res.json();
+      if (!data.success) { addMsg('dessa', `Gagal: ${data.message||'unknown'}`); }
+      else { addMsg('dessa', `Terima kasih, <strong>${name}</strong>! ✅<br/>ID: <code>${data.id}</code><br/>Email konfirmasi dikirim.`); }
+    } catch(e){ addMsg('dessa', `Error: ${e.message}`) }
+    finally { greet(); }
+  });
+  f.querySelector('#cancel').addEventListener('click', greet);
+  addMsg('dessa', f.outerHTML); chat.lastChild.replaceWith(f);
+}
+
+function startStatus() {
+  addMsg('dessa', 'Masukkan <strong>ID</strong> reminder kamu:');
+  const f = el('form', 'inline');
+  f.innerHTML = `
+    <div><label>ID Reminder</label><input name="id" required placeholder="cth: REM-20251014-AB12"/></div>
+    <div class="actions"><button type="submit" class="chip">Cek</button><button type="button" class="chip" id="cancel">Batal</button></div>
+  `;
+  f.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const id = f.elements['id'].value.trim();
+    addMsg('user', `ID: ${id}`); addMsg('dessa', 'Memeriksa...');
+    try {
+      const res = await fetch(API_BASE, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'status', id }) });
+      const data = await res.json();
+      if (!data.success) { addMsg('dessa', data.message || 'Gagal.'); }
+      else { addMsg('dessa', `Status: <strong>${data.status}</strong><br/>Nama: ${data.name||'-'}<br/>Email: ${data.email||'-'}`); }
+    } catch(e){ addMsg('dessa', `Error: ${e.message}`) }
+    finally { greet(); }
+  });
+  f.querySelector('#cancel').addEventListener('click', greet);
+  addMsg('dessa', f.outerHTML); chat.lastChild.replaceWith(f);
+}
+
+function startRemove() {
+  addMsg('dessa', 'Masukkan <strong>ID</strong> untuk menghapus reminder:');
+  const f = el('form', 'inline');
+  f.innerHTML = `
+    <div><label>ID Reminder</label><input name="id" required placeholder="cth: REM-20251014-AB12"/></div>
+    <div class="actions"><button type="submit" class="chip">Hapus</button><button type="button" class="chip" id="cancel">Batal</button></div>
+  `;
+  f.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const id = f.elements['id'].value.trim();
+    addMsg('user', `ID: ${id}`); addMsg('dessa', 'Memproses...');
+    try {
+      const res = await fetch(API_BASE, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'remove', id }) });
+      const data = await res.json();
+      if (!data.success) { addMsg('dessa', data.message || 'Gagal.'); }
+      else {
+        addMsg('dessa', `Reminder <code>${id}</code> sudah <strong>dibatalkan</strong>.<br/>Email konfirmasi dikirim. <br/><small>Jika event sudah masuk kalender, hapus manual di Google/Outlook/Apple.</small>`);
+      }
+    } catch(e){ addMsg('dessa', `Error: ${e.message}`) }
+    finally { greet(); }
+  });
+  f.querySelector('#cancel').addEventListener('click', greet);
+  addMsg('dessa', f.outerHTML); chat.lastChild.replaceWith(f);
+}
+
+greet();
+</script>
+</body>
+</html>
