@@ -2,7 +2,7 @@
 /* global ContentService, SpreadsheetApp, Utilities, MailApp */
 
 // ========= CONFIG =========
-const VERSION_TAG = 'vA-id-only-two-emails';
+const VERSION_TAG = 'vA-id-only-two-emails-r1';
 const SHEET_ID = '1Knaz_HO6ByHGZDWqhVZeQgKsenXXWqlyx_wLTI-XzEI';
 const SHEET_NAME = 'reminders';
 const SENDER_NAME = 'Dessa – Asisten Pengingat';
@@ -22,7 +22,6 @@ function doPost(e) {
     const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME);
     if (!sheet) throw new Error('Sheet tidak ditemukan.');
 
-    // ping (debug)
     if (action === 'ping') {
       return json({ success:true, version:VERSION_TAG, sheetId:SHEET_ID, sheetName:SHEET_NAME, lastRow:sheet.getLastRow() });
     }
@@ -43,33 +42,57 @@ function doPost(e) {
       const evtSettlement = makeSettlementEvent(); // daily 19:00–23:59
       const evtTimesheet  = makeTimesheetEvent();  // 15 & 30 monthly, 09:00–17:00
 
-      // --- Email 1: Settlement only ---
+      // Build emails
       const mailSet = buildCreateEmailSingle({
         id, name, email, evt: evtSettlement,
         subtitle: 'Harian • 19:00–23:59 WIB',
         filename: `${id}-settlement.ics`
       });
-      MailApp.sendEmail({
-        to: email, name: SENDER_NAME,
-        subject: mailSet.subject,
-        htmlBody: mailSet.html,
-        attachments: [mailSet.icsBlob]
-      });
-
-      // --- Email 2: Timesheet only ---
       const mailTime = buildCreateEmailSingle({
         id, name, email, evt: evtTimesheet,
         subtitle: 'Tanggal 15 & 30 setiap bulan • 09:00–17:00 WIB',
         filename: `${id}-timesheet.ics`
       });
-      MailApp.sendEmail({
-        to: email, name: SENDER_NAME,
-        subject: mailTime.subject,
-        htmlBody: mailTime.html,
-        attachments: [mailTime.icsBlob]
-      });
 
-      return json({ success:true, id });
+      // Send both — with logging + tiny delay to avoid throttling
+      let sentSet = false, sentTime = false, errList = [];
+
+      try {
+        MailApp.sendEmail({
+          to: email,
+          name: SENDER_NAME,
+          subject: mailSet.subject,
+          htmlBody: mailSet.html,
+          attachments: [mailSet.icsBlob],
+        });
+        sentSet = true;
+      } catch (e1) {
+        errList.push(`Settlement email failed: ${e1}`);
+      }
+
+      Utilities.sleep(800); // small gap
+
+      try {
+        MailApp.sendEmail({
+          to: email,
+          name: SENDER_NAME,
+          subject: mailTime.subject,
+          htmlBody: mailTime.html,
+          attachments: [mailTime.icsBlob],
+        });
+        sentTime = true;
+      } catch (e2) {
+        errList.push(`Timesheet email failed: ${e2}`);
+      }
+
+      // Optional: log to executions for debugging
+      try { console.log(`CREATE ${id} -> sentSet=${sentSet}, sentTime=${sentTime}`); } catch (_) {}
+
+      if (!sentSet && !sentTime) {
+        return json({ success:false, message:`Gagal kirim email: ${errList.join(' | ')}` });
+      }
+
+      return json({ success:true, id, sent_settlement: sentSet, sent_timesheet: sentTime, version: VERSION_TAG });
     }
 
     // ---- STATUS (ID only) ----
@@ -141,7 +164,6 @@ function toUtcStamp(d) {
 }
 
 // ========= EVENTS =========
-// Settlement: daily 19:00–23:59 WIB
 function makeSettlementEvent() {
   const now = new Date();
   const start = new Date(now);
@@ -151,7 +173,6 @@ function makeSettlementEvent() {
   return { title: TITLE_SETTLEMENT, start, end, tz: TIMEZONE, rrule: 'FREQ=DAILY' };
 }
 
-// Timesheet: monthly on 15 & 30, 09:00–17:00 WIB
 function makeTimesheetEvent() {
   const now = new Date();
   const cand15 = new Date(now.getFullYear(), now.getMonth(), 15, 9, 0, 0, 0);
@@ -168,8 +189,6 @@ function makeTimesheetEvent() {
     }
   }
   const end = new Date(start); end.setHours(17, 0, 0, 0);
-
-  // RRULE: 15 & 30 every month (months without day 30 will just skip)
   return { title: TITLE_TIMESHEET, start, end, tz: TIMEZONE, rrule: 'FREQ=MONTHLY;BYMONTHDAY=15,30' };
 }
 
