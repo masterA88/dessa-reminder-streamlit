@@ -2,7 +2,7 @@
 /* global ContentService, SpreadsheetApp, Utilities, MailApp */
 
 // ========= CONFIG =========
-const VERSION_TAG = 'vA-simple-id-only+timesheet-1';
+const VERSION_TAG = 'vA-id-only-two-emails';
 const SHEET_ID = '1Knaz_HO6ByHGZDWqhVZeQgKsenXXWqlyx_wLTI-XzEI';
 const SHEET_NAME = 'reminders';
 const SENDER_NAME = 'Dessa – Asisten Pengingat';
@@ -22,18 +22,12 @@ function doPost(e) {
     const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME);
     if (!sheet) throw new Error('Sheet tidak ditemukan.');
 
-    // --- ping (debug) ---
+    // ping (debug)
     if (action === 'ping') {
-      return json({
-        success: true,
-        version: VERSION_TAG,
-        sheetId: SHEET_ID,
-        sheetName: SHEET_NAME,
-        lastRow: sheet.getLastRow()
-      });
+      return json({ success:true, version:VERSION_TAG, sheetId:SHEET_ID, sheetName:SHEET_NAME, lastRow:sheet.getLastRow() });
     }
 
-    // --- CREATE (no duplicate check) ---
+    // ---- CREATE (no duplicate check) ----
     if (action === 'create') {
       const name  = String(data.name  || '').trim();
       const email = String(data.email || '').trim().toLowerCase();
@@ -45,27 +39,40 @@ function doPost(e) {
       const now = new Date();
       sheet.appendRow([id, now, 'ACTIVE', name, email]);
 
-      // Build both events
-      const evtSettlement = makeSettlementEvent(); // daily 19:00–23:59 WIB
-      const evtTimesheet  = makeTimesheetEvent();  // monthly on 15 & 30, 09:00–17:00 WIB
+      // Build events
+      const evtSettlement = makeSettlementEvent(); // daily 19:00–23:59
+      const evtTimesheet  = makeTimesheetEvent();  // 15 & 30 monthly, 09:00–17:00
 
-      // Email with 2 GCal links + 2 ICS attachments
-      const { subject, html, attachments } = buildCreateEmailWithTwoEvents({
-        id, name, email, evtSettlement, evtTimesheet
+      // --- Email 1: Settlement only ---
+      const mailSet = buildCreateEmailSingle({
+        id, name, email, evt: evtSettlement,
+        subtitle: 'Harian • 19:00–23:59 WIB',
+        filename: `${id}-settlement.ics`
+      });
+      MailApp.sendEmail({
+        to: email, name: SENDER_NAME,
+        subject: mailSet.subject,
+        htmlBody: mailSet.html,
+        attachments: [mailSet.icsBlob]
       });
 
+      // --- Email 2: Timesheet only ---
+      const mailTime = buildCreateEmailSingle({
+        id, name, email, evt: evtTimesheet,
+        subtitle: 'Tanggal 15 & 30 setiap bulan • 09:00–17:00 WIB',
+        filename: `${id}-timesheet.ics`
+      });
       MailApp.sendEmail({
-        to: email,
-        name: SENDER_NAME,
-        subject,
-        htmlBody: html,
-        attachments
+        to: email, name: SENDER_NAME,
+        subject: mailTime.subject,
+        htmlBody: mailTime.html,
+        attachments: [mailTime.icsBlob]
       });
 
       return json({ success:true, id });
     }
 
-    // --- STATUS (ID only) ---
+    // ---- STATUS (ID only) ----
     if (action === 'status') {
       const id = String(data.id || '').trim();
       if (!id) return json({ success:false, message:'Masukkan ID' });
@@ -78,7 +85,7 @@ function doPost(e) {
       return json({ success:true, status, id, name, email });
     }
 
-    // --- REMOVE (ID only) ---
+    // ---- REMOVE (ID only) ----
     if (action === 'remove') {
       const id = String(data.id || '').trim();
       if (!id) return json({ success:false, message:'Masukkan ID' });
@@ -118,7 +125,7 @@ function genId() {
 function findRowById(sheet, id) {
   const values = sheet.getDataRange().getValues(); // include header
   for (let i = 1; i < values.length; i++) {
-    if (String(values[i][0]) === id) return i + 1; // 1-based row index
+    if (String(values[i][0]) === id) return i + 1; // 1-based index
   }
   return -1;
 }
@@ -173,7 +180,8 @@ function googleCalLink(evt) {
   const text = encodeURIComponent(evt.title);
   const details = encodeURIComponent(`Pengingat: ${evt.title}`);
   const recur = encodeURIComponent(`RRULE:${evt.rrule || 'FREQ=DAILY'}`);
-  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${sUtc}/${eUtc}&details=${details}&recur=${recur}`;
+  const ctz = encodeURIComponent(TIMEZONE);
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${sUtc}/${eUtc}&details=${details}&recur=${recur}&ctz=${ctz}`;
 }
 
 function makeICS(evt) {
@@ -194,47 +202,32 @@ function makeICS(evt) {
 }
 
 // ========= EMAIL BUILDERS =========
-function buildCreateEmailWithTwoEvents({ id, name, email, evtSettlement, evtTimesheet }) {
-  const subject = `[${ORG_NAME}] Reminder dibuat: ${id}`;
-  const g1 = googleCalLink(evtSettlement);
-  const g2 = googleCalLink(evtTimesheet);
-
+function buildCreateEmailSingle({ id, name, email, evt, subtitle, filename }) {
+  const subject = `[${ORG_NAME}] ${evt.title} dibuat: ${id}`;
+  const gLink = googleCalLink(evt);
   const html =
   `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px">
     <p>Halo ${escapeHtml(name)},</p>
-    <p>Pengingat berhasil dibuat. Silakan tambahkan <em>kedua</em> event berikut ke kalender:</p>
-
-    <h3 style="margin-bottom:4px">1) ${escapeHtml(TITLE_SETTLEMENT)}</h3>
-    <ul style="margin-top:4px">
-      <li>Jadwal: <strong>harian</strong>, 19:00–23:59 WIB</li>
-      <li><a href="${g1}">➕ Add to Google Calendar</a></li>
-      <li>Outlook/Apple: gunakan lampiran <code>${id}-settlement.ics</code></li>
+    <p>Event kalender untuk <strong>${escapeHtml(evt.title)}</strong> telah dibuat.</p>
+    <ul>
+      <li>Jadwal: ${escapeHtml(subtitle)}</li>
+      <li><a href="${gLink}">➕ Add to Google Calendar</a></li>
+      <li>Outlook/Apple: gunakan lampiran <code>${escapeHtml(filename)}</code></li>
     </ul>
-
-    <h3 style="margin-bottom:4px">2) ${escapeHtml(TITLE_TIMESHEET)}</h3>
-    <ul style="margin-top:4px">
-      <li>Jadwal: <strong>tanggal 15 & 30 setiap bulan</strong>, 09:00–17:00 WIB</li>
-      <li><a href="${g2}">➕ Add to Google Calendar</a></li>
-      <li>Outlook/Apple: gunakan lampiran <code>${id}-timesheet.ics</code></li>
-    </ul>
-
     <p><strong>ID:</strong> ${id}<br/><strong>Email:</strong> ${escapeHtml(email)}</p>
-    <hr/>
-    <p style="color:#6b7280">Email otomatis dari ${escapeHtml(ORG_NAME)} • Jangan balas ke alamat ini.</p>
+    <hr/><p style="color:#6b7280">Email otomatis dari ${escapeHtml(ORG_NAME)}.</p>
   </div>`;
-
-  const ics1 = Utilities.newBlob(makeICS(evtSettlement), 'text/calendar', `${id}-settlement.ics`);
-  const ics2 = Utilities.newBlob(makeICS(evtTimesheet),  'text/calendar', `${id}-timesheet.ics`);
-  return { subject, html, attachments: [ics1, ics2] };
+  const icsBlob = Utilities.newBlob(makeICS(evt), 'text/calendar', filename);
+  return { subject, html, icsBlob };
 }
 
 function buildRemoveEmail({ id, name, email }) {
-  const subject = `[${ORG_NAME}] Konfirmasi penghapusan reminder: ${id}`;
+  const subject = `[${ORG_NAME}] Konfirmasi penghapusan: ${id}`;
   const html =
   `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px">
     <p>Halo ${escapeHtml(name || '')},</p>
     <p>Reminder dengan <strong>ID:</strong> ${id} telah <strong>dibatalkan</strong> di sistem kami.</p>
-    <p><strong>Catatan:</strong> jika event Settlement/Timesheet sudah ditambahkan ke kalender,
+    <p><strong>Catatan:</strong> jika event sudah ditambahkan ke kalender (Settlement atau Timesheet),
     silakan <strong>hapus manual</strong> di Google/Outlook/Apple.</p>
     <hr/><p style="color:#6b7280">${escapeHtml(ORG_NAME)}</p>
   </div>`;
